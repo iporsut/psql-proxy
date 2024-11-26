@@ -57,6 +57,9 @@ func sniffer(client, db net.Conn) {
 	slog.Info("starting sniffing the PSQL packages")
 
 	go func() {
+		defer db.Close()
+		defer client.Close()
+		
 		reader := buffer.NewReader(slog.Default(), to, 0)
 		_, err := reader.ReadUntypedMsg()
 		if err != nil {
@@ -88,6 +91,9 @@ func sniffer(client, db net.Conn) {
 	}()
 
 	go func() {
+		defer db.Close()
+		defer client.Close()
+		
 		if !*tls {
 			bb := make([]byte, 1)
 			_, err := from.Read(bb)
