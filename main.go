@@ -11,12 +11,14 @@ import (
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 )
 
-var listening = flag.String("l", ":2345", "port the proxy is listening on")
-var dial = flag.String("d", "127.0.0.1:5432", "PostgreSQL server target")
+var listening = flag.String("l", ":5434", "port the proxy is listening on")
+var dial = flag.String("d", "127.0.0.1:5433", "PostgreSQL server target")
 var tls = flag.Bool("tls", false, "this flag has to be set whenever the server is supporting TLS connections")
 
 func main() {
 	flag.Parse()
+
+	slog.SetLogLoggerLevel(slog.LevelError)
 
 	err := run()
 	if err != nil {
@@ -56,14 +58,17 @@ func sniffer(client, db net.Conn) {
 
 	slog.Info("starting sniffing the PSQL packages")
 
+	var done bool
+
 	go func() {
+		defer func() {
+			done = true
+		}()
 		defer db.Close()
-		defer client.Close()
-		
-		reader := buffer.NewReader(slog.Default(), to, 0)
+		reader := buffer.NewReader(slog.Default(), to, 1406920893)
 		_, err := reader.ReadUntypedMsg()
 		if err != nil {
-			slog.Error("unexpected error while reading the client version", slog.String("err", err.Error()))
+			slog.Info("unexpected error while reading the client version", slog.String("err", err.Error()))
 			return
 		}
 
@@ -75,15 +80,15 @@ func sniffer(client, db net.Conn) {
 			reader.ReadUntypedMsg()
 		}
 
-		for {
+		for !done {
 			t, _, err := reader.ReadTypedMsg()
 			if err == io.EOF {
 				return
 			}
 
 			if err != nil {
-				slog.Error("unexpected error while reading a typed client message", slog.String("err", err.Error()))
-				return
+				slog.Info("unexpected error while reading a typed client message", slog.String("err", err.Error()))
+				continue
 			}
 
 			slog.Info("->>", slog.String("type", string(t)), slog.String("msg", string(reader.Msg)))
@@ -91,28 +96,29 @@ func sniffer(client, db net.Conn) {
 	}()
 
 	go func() {
-		defer db.Close()
+		defer func() {
+			done = true
+		}()
 		defer client.Close()
-		
 		if !*tls {
 			bb := make([]byte, 1)
 			_, err := from.Read(bb)
 			if err != nil {
-				slog.Error("unexpected error while reading the tls response", slog.String("err", err.Error()))
+				slog.Info("unexpected error while reading the tls response", slog.String("err", err.Error()))
 				return
 			}
 		}
 
-		reader := buffer.NewReader(slog.Default(), from, 0)
-		for {
+		reader := buffer.NewReader(slog.Default(), from, 1406920893)
+		for !done {
 			t, _, err := reader.ReadTypedMsg()
 			if err == io.EOF {
 				return
 			}
 
 			if err != nil {
-				slog.Error("unexpected error while reading the server response", slog.String("err", err.Error()))
-				return
+				slog.Info("unexpected error while reading the server response", slog.String("err", err.Error()))
+				continue
 			}
 
 			slog.Info("<<-", slog.String("type", string(t)), slog.String("msg", string(reader.Msg)))
